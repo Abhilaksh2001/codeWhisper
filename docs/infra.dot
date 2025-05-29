@@ -1,0 +1,37 @@
+digraph INFRA {
+  node [ color = "black", fillcolor = "#E6E6E6", height =1, style = "filled,bold,rounded", fontname = "Arial" ];
+  "SheetsDataTable" [ label = "SheetsDataTable
+(AWS::DynamoDB::Table)", shape =cylinder, fillcolor = "#FFCFB3" ];
+  "DataSourcesTable" [ label = "DataSourcesTable
+(AWS::DynamoDB::Table)", shape =cylinder, fillcolor = "#FFCFB3" ];
+  "ConnectionsTable" [ label = "ConnectionsTable
+(AWS::DynamoDB::Table)", shape =cylinder, fillcolor = "#FFCFB3" ];
+  "ChangeNotificationQueue" [ label = "ChangeNotificationQueue
+(AWS::SQS::Queue)", shape =rectangle, fillcolor = "#CCE0AC" ];
+  "ChangeNotificationDLQ" [ label = "ChangeNotificationDLQ
+(AWS::SQS::Queue)", shape =rectangle, fillcolor = "#CCE0AC" ];
+  "ConnectionManagementCache" [ label = "ConnectionManagementCache
+(AWS::ElastiCache::CacheCluster)", shape =cylinder, fillcolor = "#FFCFB3" ];
+  "ElastiCacheSecurityGroup" [ label = "ElastiCacheSecurityGroup
+(AWS::EC2::SecurityGroup)", shape =rectangle ];
+  "WebSocketApi" [ label = "WebSocketApi
+(AWS::ApiGatewayV2::Api)", shape =rectangle, fillcolor = "#E78F81" ];
+  "WebSocketApiStage" [ label = "WebSocketApiStage
+(AWS::ApiGatewayV2::Stage)", shape =rectangle, fillcolor = "#E78F81" ];
+  "WebSocketAuthorizer" [ label = "WebSocketAuthorizer
+(AWS::ApiGatewayV2::Authorizer)", shape =rectangle, fillcolor = "#E78F81" ];
+  "WebSocketAuthorizerFunction" [ label = "WebSocketAuthorizerFunction
+(AWS::Lambda::Function)", shape =rectangle, fillcolor = "#B7E0FF" ];
+  "WebSocketHandlerFunction" [ label = "WebSocketHandlerFunction
+(AWS::Lambda::Function)", shape =rectangle, fillcolor = "#B7E0FF" ];
+  "DataSourceHandlerFunction" [ label = "DataSourceHandlerFunction
+(AWS::Lambda::Function)", shape =rectangle, fillcolor = "#B7E0FF" ];
+  "ChangeNotificationQueue" -> "ChangeNotificationDLQ";
+  "ConnectionManagementCache" -> "ElastiCacheSecurityGroup";
+  "WebSocketApiStage" -> "WebSocketApi";
+  "WebSocketAuthorizer" -> "WebSocketApi";
+  "WebSocketAuthorizer" -> "WebSocketAuthorizerFunction";
+  "WebSocketHandlerFunction" -> "ConnectionsTable";
+  "WebSocketHandlerFunction" -> "SheetsDataTable";
+  "WebSocketHandlerFunction" -> "ChangeNotificationQueue";
+}

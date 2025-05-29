@@ -1,0 +1,32 @@
+[
+  {
+    "id": "stocks",
+    "url": "http://localhost:3000/api/stocks",
+    "type": "json",
+    "headers": {}
+  },
+  {
+    "id": "weather",
+    "url": "http://localhost:3000/api/weather",
+    "type": "json",
+    "headers": {}
+  },
+  {
+    "id": "news",
+    "url": "http://localhost:3000/api/news",
+    "type": "json",
+    "headers": {}
+  },
+  {
+    "id": "products",
+    "url": "http://localhost:3000/api/products",
+    "type": "xml",
+    "headers": {}
+  },
+  {
+    "id": "customers",
+    "url": "http://localhost:3000/api/customers",
+    "type": "xml",
+    "headers": {}
+  }
+]

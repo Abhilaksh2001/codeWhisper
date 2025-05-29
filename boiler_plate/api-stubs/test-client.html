@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Stub Test Client</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .card {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        button {
+            padding: 8px 16px;
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background-color: #3367d6;
+        }
+        pre {
+            background-color: #f1f1f1;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        input[type="text"] {
+            padding: 8px;
+            width: 100%;
+            max-width: 300px;
+            box-sizing: border-box;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>API Stub Test Client</h1>
+        
+        <div class="card">
+            <h2>JSON APIs</h2>
+            <button onclick="fetchAPI('/api/stocks')">Get Stocks</button>
+            <button onclick="fetchAPI('/api/weather')">Get Weather</button>
+            <button onclick="fetchAPI('/api/news')">Get News</button>
+        </div>
+        
+        <div class="card">
+            <h2>XML APIs</h2>
+            <button onclick="fetchAPI('/api/products', true)">Get Products</button>
+            <button onclick="fetchAPI('/api/customers', true)">Get Customers</button>
+        </div>
+        
+        <div class="card">
+            <h2>Admin Actions</h2>
+            <button onclick="updateAPI('/admin/update-stocks')">Update Stocks</button>
+            <button onclick="updateAPI('/admin/update-weather')">Update Weather</button>
+            
+            <div class="form-group">
+                <h3>Add News Item</h3>
+                <div class="form-group">
+                    <label for="newsTitle">Title:</label>
+                    <input type="text" id="newsTitle" placeholder="Enter news title">
+                </div>
+                <div class="form-group">
+                    <label for="newsContent">Content:</label>
+                    <input type="text" id="newsContent" placeholder="Enter news content">
+                </div>
+                <button onclick="addNews()">Add News</button>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2>Response</h2>
+            <pre id="response">No data fetched yet.</pre>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:3000';
+        const responseElement = document.getElementById('response');
+        
+        // Fetch API data
+        async function fetchAPI(endpoint, isXml = false) {
+            try {
+                const response = await fetch(`${API_BASE_URL}${endpoint}`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                
+                if (isXml) {
+                    const text = await response.text();
+                    responseElement.textContent = text;
+                } else {
+                    const data = await response.json();
+                    responseElement.textContent = JSON.stringify(data, null, 2);
+                }
+            } catch (error) {
+                responseElement.textContent = `Error: ${error.message}`;
+            }
+        }
+        
+        // Update API data
+        async function updateAPI(endpoint) {
+            try {
+                const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                responseElement.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                responseElement.textContent = `Error: ${error.message}`;
+            }
+        }
+        
+        // Add news item
+        async function addNews() {
+            const title = document.getElementById('newsTitle').value;
+            const content = document.getElementById('newsContent').value;
+            
+            if (!title || !content) {
+                responseElement.textContent = 'Error: Please enter both title and content';
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/admin/add-news`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ title, content })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                responseElement.textContent = JSON.stringify(data, null, 2);
+                
+                // Clear form
+                document.getElementById('newsTitle').value = '';
+                document.getElementById('newsContent').value = '';
+            } catch (error) {
+                responseElement.textContent = `Error: ${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html>

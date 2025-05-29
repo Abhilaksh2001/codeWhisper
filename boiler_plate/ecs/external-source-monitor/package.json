@@ -1,0 +1,26 @@
+{
+  "name": "external-source-monitor",
+  "version": "1.0.0",
+  "description": "Service to monitor external JSON/XML sources for changes",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "jest"
+  },
+  "dependencies": {
+    "aws-sdk": "^2.1048.0",
+    "axios": "^0.24.0",
+    "xml2js": "^0.4.23",
+    "winston": "^3.3.3"
+  },
+  "devDependencies": {
+    "jest": "^27.4.7"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "collectCoverage": true,
+    "coverageDirectory": "coverage",
+    "coverageReporters": ["text", "lcov"],
+    "collectCoverageFrom": ["*.js", "!node_modules/**"]
+  }
+}

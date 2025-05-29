@@ -1,0 +1,368 @@
+openapi: 3.0.0
+info:
+  title: API Stubs for Testing and Development
+  description: |
+    API documentation for the mock API endpoints that simulate external data sources
+    for testing and development purposes.
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: support@example.com
+
+servers:
+  - url: http://localhost:3000
+    description: Local development server
+
+tags:
+  - name: JSON APIs
+    description: JSON data source endpoints
+  - name: XML APIs
+    description: XML data source endpoints
+  - name: Admin
+    description: Administrative endpoints for simulating changes
+
+paths:
+  /api/stocks:
+    get:
+      tags:
+        - JSON APIs
+      summary: Get stock data
+      description: Returns current stock prices and changes in JSON format
+      operationId: getStocks
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StocksResponse'
+        '500':
+          description: Internal server error
+
+  /api/weather:
+    get:
+      tags:
+        - JSON APIs
+      summary: Get weather data
+      description: Returns current weather conditions and forecast in JSON format
+      operationId: getWeather
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WeatherResponse'
+        '500':
+          description: Internal server error
+
+  /api/news:
+    get:
+      tags:
+        - JSON APIs
+      summary: Get news data
+      description: Returns latest news items in JSON format
+      operationId: getNews
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsResponse'
+        '500':
+          description: Internal server error
+
+  /api/products:
+    get:
+      tags:
+        - XML APIs
+      summary: Get product catalog
+      description: Returns product information in XML format
+      operationId: getProducts
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/xml:
+              schema:
+                $ref: '#/components/schemas/ProductsResponse'
+        '500':
+          description: Internal server error
+
+  /api/customers:
+    get:
+      tags:
+        - XML APIs
+      summary: Get customer data
+      description: Returns customer information in XML format
+      operationId: getCustomers
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/xml:
+              schema:
+                $ref: '#/components/schemas/CustomersResponse'
+        '500':
+          description: Internal server error
+
+  /admin/update-stocks:
+    post:
+      tags:
+        - Admin
+      summary: Update stock prices
+      description: Randomly updates stock prices
+      operationId: updateStocks
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminResponse'
+        '500':
+          description: Internal server error
+
+  /admin/update-weather:
+    post:
+      tags:
+        - Admin
+      summary: Update weather data
+      description: Randomly updates temperature and conditions
+      operationId: updateWeather
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminResponse'
+        '500':
+          description: Internal server error
+
+  /admin/add-news:
+    post:
+      tags:
+        - Admin
+      summary: Add news item
+      description: Adds a new news item to the beginning of the list
+      operationId: addNews
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewsItemRequest'
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminResponse'
+        '400':
+          description: Invalid request
+        '500':
+          description: Internal server error
+
+components:
+  schemas:
+    StocksResponse:
+      type: object
+      properties:
+        stocks:
+          type: array
+          items:
+            $ref: '#/components/schemas/StockItem'
+        lastUpdated:
+          type: string
+          format: date-time
+      example:
+        stocks:
+          - symbol: AAPL
+            price: 150.25
+            change: 2.5
+          - symbol: MSFT
+            price: 290.10
+            change: -1.2
+        lastUpdated: "2023-01-01T12:00:00Z"
+
+    StockItem:
+      type: object
+      properties:
+        symbol:
+          type: string
+        price:
+          type: number
+          format: float
+        change:
+          type: number
+          format: float
+
+    WeatherResponse:
+      type: object
+      properties:
+        location:
+          type: string
+        temperature:
+          type: integer
+        conditions:
+          type: string
+        forecast:
+          type: array
+          items:
+            $ref: '#/components/schemas/ForecastItem'
+        lastUpdated:
+          type: string
+          format: date-time
+      example:
+        location: "New York"
+        temperature: 72
+        conditions: "Partly Cloudy"
+        forecast:
+          - day: "Monday"
+            high: 75
+            low: 65
+            conditions: "Sunny"
+        lastUpdated: "2023-01-01T12:00:00Z"
+
+    ForecastItem:
+      type: object
+      properties:
+        day:
+          type: string
+        high:
+          type: integer
+        low:
+          type: integer
+        conditions:
+          type: string
+
+    NewsResponse:
+      type: array
+      items:
+        $ref: '#/components/schemas/NewsItem'
+      example:
+        - id: 1
+          title: "Breaking News"
+          content: "This is a breaking news story"
+          timestamp: "2023-01-01T12:00:00Z"
+        - id: 2
+          title: "Technology Update"
+          content: "New technology breakthrough announced"
+          timestamp: "2023-01-01T11:30:00Z"
+
+    NewsItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        content:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    NewsItemRequest:
+      type: object
+      required:
+        - title
+        - content
+      properties:
+        title:
+          type: string
+          description: Title of the news item
+        content:
+          type: string
+          description: Content of the news item
+      example:
+        title: "Breaking News"
+        content: "This is a breaking news story"
+
+    ProductsResponse:
+      type: object
+      properties:
+        products:
+          type: object
+          properties:
+            product:
+              type: array
+              items:
+                $ref: '#/components/schemas/ProductItem'
+      example:
+        products:
+          product:
+            - id: 1
+              name: "Laptop"
+              price: 999.99
+              category: "Electronics"
+            - id: 2
+              name: "Smartphone"
+              price: 699.99
+              category: "Electronics"
+
+    ProductItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        price:
+          type: number
+          format: float
+        category:
+          type: string
+
+    CustomersResponse:
+      type: object
+      properties:
+        customers:
+          type: object
+          properties:
+            customer:
+              type: array
+              items:
+                $ref: '#/components/schemas/CustomerItem'
+      example:
+        customers:
+          customer:
+            - id: 1001
+              name: "John Smith"
+              email: "john@example.com"
+              status: "active"
+            - id: 1002
+              name: "Jane Doe"
+              email: "jane@example.com"
+              status: "inactive"
+
+    CustomerItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        email:
+          type: string
+        status:
+          type: string
+          enum: [active, inactive]
+
+    AdminResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        data:
+          type: object
+      example:
+        message: "Stock data updated"
+        data:
+          stocks:
+            - symbol: "AAPL"
+              price: 152.75
+              change: 2.5

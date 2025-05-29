@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Google Sheets Integration API Documentation</title>
+    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@4.5.0/swagger-ui.css" />
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+        }
+        header {
+            background-color: #1a365d;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .api-selector {
+            margin-bottom: 20px;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-radius: 5px;
+        }
+        .api-selector select {
+            padding: 8px;
+            font-size: 16px;
+            width: 300px;
+        }
+        #swagger-ui {
+            margin-top: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Real-Time Google Sheets Integration API Documentation</h1>
+    </header>
+    
+    <div class="container">
+        <div class="api-selector">
+            <label for="api-select">Select API: </label>
+            <select id="api-select">
+                <option value="openapi.yaml">WebSocket API</option>
+                <option value="api-stubs-openapi.yaml">API Stubs</option>
+            </select>
+        </div>
+        
+        <div id="swagger-ui"></div>
+    </div>
+    
+    <script src="https://unpkg.com/swagger-ui-dist@4.5.0/swagger-ui-bundle.js"></script>
+    <script>
+        window.onload = function() {
+            // Initial render
+            renderSwaggerUI('openapi.yaml');
+            
+            // Handle API selection change
+            document.getElementById('api-select').addEventListener('change', function() {
+                renderSwaggerUI(this.value);
+            });
+            
+            function renderSwaggerUI(specUrl) {
+                // Clear previous UI
+                const swaggerUI = document.getElementById('swagger-ui');
+                while (swaggerUI.firstChild) {
+                    swaggerUI.removeChild(swaggerUI.firstChild);
+                }
+                
+                // Initialize Swagger UI
+                window.ui = SwaggerUIBundle({
+                    url: specUrl,
+                    dom_id: '#swagger-ui',
+                    deepLinking: true,
+                    presets: [
+                        SwaggerUIBundle.presets.apis,
+                        SwaggerUIBundle.SwaggerUIStandalonePreset
+                    ],
+                    layout: "BaseLayout",
+                    supportedSubmitMethods: []
+                });
+            }
+        };
+    </script>
+</body>
+</html>

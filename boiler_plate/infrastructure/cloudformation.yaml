@@ -1,0 +1,831 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Real-time Google Sheets Integration System'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Deployment environment
+  SubnetId:
+    Type: String
+    Description: Subnet ID for ECS tasks
+  SheetsMonitorECRUri:
+    Type: String
+    Description: URI of the ECR repository containing the Google Sheets monitoring container image
+  ExternalSourceMonitorECRUri:
+    Type: String
+    Description: URI of the ECR repository containing the external source monitoring container image
+  ExternalSourcesConfig:
+    Type: String
+    Description: JSON configuration for external sources to monitor
+    Default: '[{"id":"example-source","url":"https://example.com/api/data","type":"json","headers":{"Authorization":"Bearer TOKEN"}}]'
+
+Resources:
+  # DynamoDB Table for storing data from Google Sheets
+  SheetsDataTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'sheets-data-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: sheetId
+          AttributeType: S
+        - AttributeName: lastUpdated
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: SheetIdIndex
+          KeySchema:
+            - AttributeName: sheetId
+              KeyType: HASH
+            - AttributeName: lastUpdated
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+        
+  # DynamoDB Table for storing data source configurations
+  DataSourcesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'data-sources-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: type
+          AttributeType: S
+        - AttributeName: owner
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: TypeIndex
+          KeySchema:
+            - AttributeName: type
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: OwnerIndex
+          KeySchema:
+            - AttributeName: owner
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  # DynamoDB Table for WebSocket connections
+  ConnectionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'websocket-connections-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: connectionId
+          AttributeType: S
+        - AttributeName: sheetId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: connectionId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: SheetSubscriptions
+          KeySchema:
+            - AttributeName: sheetId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      SSESpecification:
+        SSEEnabled: true
+
+  # SQS Queue for change notifications
+  ChangeNotificationQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 'sheet-changes-${Environment}'
+      VisibilityTimeout: 60
+      MessageRetentionPeriod: 86400
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ChangeNotificationDLQ.Arn
+        maxReceiveCount: 3
+
+  # Dead Letter Queue for failed change notifications
+  ChangeNotificationDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 'sheet-changes-dlq-${Environment}'
+      MessageRetentionPeriod: 1209600
+
+  # ElastiCache Redis for connection management
+  ConnectionManagementCache:
+    Type: AWS::ElastiCache::CacheCluster
+    Properties:
+      CacheNodeType: cache.t3.small
+      Engine: redis
+      NumCacheNodes: 1
+      VpcSecurityGroupIds:
+        - !GetAtt ElastiCacheSecurityGroup.GroupId
+
+  # Security Group for ElastiCache
+  ElastiCacheSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for ElastiCache Redis
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 6379
+          ToPort: 6379
+          CidrIp: 10.0.0.0/16
+
+  # WebSocket API
+  WebSocketApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub 'sheets-websocket-api-${Environment}'
+      ProtocolType: WEBSOCKET
+      RouteSelectionExpression: "$request.body.action"
+
+  # WebSocket API Stage
+  WebSocketApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref WebSocketApi
+      StageName: !Ref Environment
+      AutoDeploy: true
+      
+  # WebSocket API Authorizer
+  WebSocketAuthorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Properties:
+      ApiId: !Ref WebSocketApi
+      AuthorizerType: REQUEST
+      AuthorizerUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WebSocketAuthorizerFunction.Arn}/invocations
+      IdentitySource:
+        - route.request.header.Authorization
+      Name: WebSocketTokenAuthorizer
+      
+  # Lambda function for WebSocket authorization
+  WebSocketAuthorizerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'websocket-authorizer-${Environment}'
+      Runtime: nodejs14.x
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 10
+      MemorySize: 128
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            console.log('Auth event:', JSON.stringify(event, null, 2));
+            
+            // Get the Authorization header
+            const authHeader = event.headers?.Authorization || event.headers?.authorization;
+            
+            if (!authHeader) {
+              return generatePolicy('user', 'Deny', event.methodArn);
+            }
+            
+            try {
+              // Implement your token validation logic here
+              // This is a simple example - replace with your actual auth logic
+              if (authHeader.startsWith('Bearer ')) {
+                const token = authHeader.substring(7);
+                
+                // Validate the token (example)
+                if (isValidToken(token)) {
+                  // Optionally extract user info from token
+                  const userId = getUserIdFromToken(token);
+                  return generatePolicy(userId, 'Allow', event.methodArn);
+                }
+              }
+              
+              return generatePolicy('user', 'Deny', event.methodArn);
+            } catch (error) {
+              console.error('Error during authorization:', error);
+              return generatePolicy('user', 'Deny', event.methodArn);
+            }
+          };
+          
+          // Helper function to validate token - replace with your actual validation
+          function isValidToken(token) {
+            // Implement your token validation logic
+            // Example: JWT verification, database lookup, etc.
+            return token && token.length > 10; // Placeholder validation
+          }
+          
+          // Helper function to extract user ID from token
+          function getUserIdFromToken(token) {
+            // Implement your logic to extract user ID from token
+            return 'user123'; // Placeholder
+          }
+          
+          // Helper function to generate IAM policy
+          function generatePolicy(principalId, effect, resource) {
+            const authResponse = {
+              principalId: principalId,
+              policyDocument: {
+                Version: '2012-10-17',
+                Statement: [{
+                  Action: 'execute-api:Invoke',
+                  Effect: effect,
+                  Resource: resource
+                }]
+              },
+              // Optional context values
+              context: {
+                userId: principalId,
+                // Add additional context values as needed
+              }
+            };
+            
+            return authResponse;
+          }
+          
+  # Permission for API Gateway to invoke the authorizer Lambda
+  WebSocketAuthorizerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref WebSocketAuthorizerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/authorizers/${WebSocketAuthorizer}
+      
+  # Lambda function for WebSocket handling
+  WebSocketHandlerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'websocket-handler-${Environment}'
+      Runtime: nodejs14.x
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          SHEETS_DATA_TABLE: !Ref SheetsDataTable
+          WEBSOCKET_API_ENDPOINT: !Sub '${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
+          SQS_QUEUE_URL: !Ref ChangeNotificationQueue
+      Code:
+        ZipFile: |
+          // This is a placeholder. The actual code will be deployed separately.
+          exports.handler = async (event) => {
+            return { statusCode: 200, body: 'Hello World' };
+          };
+          
+  # Lambda function for listing data sources
+  ListDataSourcesFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'list-datasources-${Environment}'
+      Runtime: nodejs14.x
+      Handler: list.handler
+      Role: !GetAtt DataSourceLambdaExecutionRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          DATA_SOURCES_TABLE: !Ref DataSourcesTable
+      Code:
+        ZipFile: |
+          // This is a placeholder. The actual code will be deployed separately.
+          exports.handler = async (event) => {
+            return { statusCode: 200, body: 'Hello World' };
+          };
+          
+  # Lambda function for getting a data source
+  GetDataSourceFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'get-datasource-${Environment}'
+      Runtime: nodejs14.x
+      Handler: get.handler
+      Role: !GetAtt DataSourceLambdaExecutionRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          DATA_SOURCES_TABLE: !Ref DataSourcesTable
+      Code:
+        ZipFile: |
+          // This is a placeholder. The actual code will be deployed separately.
+          exports.handler = async (event) => {
+            return { statusCode: 200, body: 'Hello World' };
+          };
+          
+  # Lambda function for registering a data source
+  RegisterDataSourceFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'register-datasource-${Environment}'
+      Runtime: nodejs14.x
+      Handler: register.handler
+      Role: !GetAtt DataSourceLambdaExecutionRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          DATA_SOURCES_TABLE: !Ref DataSourcesTable
+          SECRETS_PREFIX: !Sub 'datasource/${Environment}/'
+      Code:
+        ZipFile: |
+          // This is a placeholder. The actual code will be deployed separately.
+          exports.handler = async (event) => {
+            return { statusCode: 201, body: 'Hello World' };
+          };
+          
+  # Lambda function for updating a data source
+  UpdateDataSourceFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'update-datasource-${Environment}'
+      Runtime: nodejs14.x
+      Handler: update.handler
+      Role: !GetAtt DataSourceLambdaExecutionRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          DATA_SOURCES_TABLE: !Ref DataSourcesTable
+          SECRETS_PREFIX: !Sub 'datasource/${Environment}/'
+      Code:
+        ZipFile: |
+          // This is a placeholder. The actual code will be deployed separately.
+          exports.handler = async (event) => {
+            return { statusCode: 200, body: 'Hello World' };
+          };
+          
+  # Lambda function for deleting a data source
+  DeleteDataSourceFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'delete-datasource-${Environment}'
+      Runtime: nodejs14.x
+      Handler: delete.handler
+      Role: !GetAtt DataSourceLambdaExecutionRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          DATA_SOURCES_TABLE: !Ref DataSourcesTable
+      Code:
+        ZipFile: |
+          // This is a placeholder. The actual code will be deployed separately.
+          exports.handler = async (event) => {
+            return { statusCode: 200, body: 'Hello World' };
+          }; 
+          
+  # SQS Event Source Mapping for Lambda
+  SQSEventSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 10
+      Enabled: true
+      EventSourceArn: !GetAtt ChangeNotificationQueue.Arn
+      FunctionName: !GetAtt WebSocketHandlerFunction.Arn
+      
+  # API Gateway REST API for data source management
+  DataSourcesApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub 'data-sources-api-${Environment}'
+      Description: API for managing data sources
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  # API Gateway Resource for /datasources
+  DataSourcesResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref DataSourcesApi
+      ParentId: !GetAtt DataSourcesApi.RootResourceId
+      PathPart: 'datasources'
+
+  # API Gateway Resource for /datasources/{sourceId}
+  DataSourceResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref DataSourcesApi
+      ParentId: !Ref DataSourcesResource
+      PathPart: '{sourceId}'
+
+  # API Gateway Resource for /datasources/register
+  RegisterDataSourceResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref DataSourcesApi
+      ParentId: !Ref DataSourcesResource
+      PathPart: 'register'
+
+  # API Gateway Resource for /datasources/{sourceId}/update
+  UpdateDataSourceResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref DataSourcesApi
+      ParentId: !Ref DataSourceResource
+      PathPart: 'update'
+
+  # API Gateway Resource for /datasources/{sourceId}/delete
+  DeleteDataSourceResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref DataSourcesApi
+      ParentId: !Ref DataSourceResource
+      PathPart: 'delete'
+
+  # API Gateway Method for GET /datasources
+  ListDataSourcesMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref DataSourcesApi
+      ResourceId: !Ref DataSourcesResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ListDataSourcesFunction.Arn}/invocations'
+      MethodResponses:
+        - StatusCode: 200
+
+  # API Gateway Method for GET /datasources/{sourceId}
+  GetDataSourceMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref DataSourcesApi
+      ResourceId: !Ref DataSourceResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetDataSourceFunction.Arn}/invocations'
+      MethodResponses:
+        - StatusCode: 200
+
+  # API Gateway Method for POST /datasources/register
+  RegisterDataSourceMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref DataSourcesApi
+      ResourceId: !Ref RegisterDataSourceResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${RegisterDataSourceFunction.Arn}/invocations'
+      MethodResponses:
+        - StatusCode: 201
+
+  # API Gateway Method for PUT /datasources/{sourceId}/update
+  UpdateDataSourceMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref DataSourcesApi
+      ResourceId: !Ref UpdateDataSourceResource
+      HttpMethod: PUT
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${UpdateDataSourceFunction.Arn}/invocations'
+      MethodResponses:
+        - StatusCode: 200
+
+  # API Gateway Method for DELETE /datasources/{sourceId}/delete
+  DeleteDataSourceMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref DataSourcesApi
+      ResourceId: !Ref DeleteDataSourceResource
+      HttpMethod: DELETE
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DeleteDataSourceFunction.Arn}/invocations'
+      MethodResponses:
+        - StatusCode: 200
+
+  # API Gateway Deployment
+  DataSourcesApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - ListDataSourcesMethod
+      - GetDataSourceMethod
+      - RegisterDataSourceMethod
+      - UpdateDataSourceMethod
+      - DeleteDataSourceMethod
+    Properties:
+      RestApiId: !Ref DataSourcesApi
+      StageName: !Ref Environment
+
+  # Lambda Permissions for API Gateway
+  ListDataSourcesLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ListDataSourcesFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${DataSourcesApi}/*/GET/datasources'
+      
+  GetDataSourceLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref GetDataSourceFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${DataSourcesApi}/*/GET/datasources/*'
+      
+  RegisterDataSourceLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref RegisterDataSourceFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${DataSourcesApi}/*/POST/datasources/register'
+      
+  UpdateDataSourceLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref UpdateDataSourceFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${DataSourcesApi}/*/PUT/datasources/*/update'
+      
+  DeleteDataSourceLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref DeleteDataSourceFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${DataSourcesApi}/*/DELETE/datasources/*/delete'
+
+  # ECS Cluster for monitoring services
+  MonitoringCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub 'data-monitoring-${Environment}'
+
+  # ECS Task Definition for Google Sheets monitoring
+  SheetsMonitoringTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub 'sheets-monitoring-task-${Environment}'
+      Cpu: '256'
+      Memory: '512'
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !GetAtt ECSExecutionRole.Arn
+      TaskRoleArn: !GetAtt ECSTaskRole.Arn
+      ContainerDefinitions:
+        - Name: sheets-monitor
+          Image: !Ref SheetsMonitorECRUri
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref SheetsMonitoringLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+              
+  # ECS Task Definition for External Source monitoring
+  ExternalSourceMonitoringTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub 'external-source-monitoring-task-${Environment}'
+      Cpu: '256'
+      Memory: '512'
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !GetAtt ECSExecutionRole.Arn
+      TaskRoleArn: !GetAtt ECSTaskRole.Arn
+      ContainerDefinitions:
+        - Name: external-source-monitor
+          Image: !Ref ExternalSourceMonitorECRUri
+          Essential: true
+          Environment:
+            - Name: DATA_TABLE
+              Value: !Ref SheetsDataTable
+            - Name: SQS_QUEUE_URL
+              Value: !Ref ChangeNotificationQueue
+            - Name: EXTERNAL_SOURCES
+              Value: !Ref ExternalSourcesConfig
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref ExternalSourceMonitoringLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+
+  # ECS Service for Google Sheets monitoring
+  SheetsMonitoringService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub 'sheets-monitoring-service-${Environment}'
+      Cluster: !Ref MonitoringCluster
+      TaskDefinition: !Ref SheetsMonitoringTaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !GetAtt ECSSecurityGroup.GroupId
+          Subnets:
+            - !Ref SubnetId
+            
+  # ECS Service for External Source monitoring
+  ExternalSourceMonitoringService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub 'external-source-monitoring-service-${Environment}'
+      Cluster: !Ref MonitoringCluster
+      TaskDefinition: !Ref ExternalSourceMonitoringTaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !GetAtt ECSSecurityGroup.GroupId
+          Subnets:
+            - !Ref SubnetId
+
+  # Security Group for ECS
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for ECS tasks
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  # CloudWatch Log Group for Sheets Monitoring
+  SheetsMonitoringLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/ecs/sheets-monitoring-${Environment}'
+      RetentionInDays: 14
+      
+  # CloudWatch Log Group for External Source Monitoring
+  ExternalSourceMonitoringLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/ecs/external-source-monitoring-${Environment}'
+      RetentionInDays: 14
+
+  # IAM Role for ECS Task Execution
+  ECSExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+
+  # IAM Role for ECS Task
+  ECSTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonSQSFullAccess'
+        - 'arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess'
+        
+  # IAM Role for WebSocket Lambda Execution
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: !Sub 'websocket-handler-policy-${Environment}'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'dynamodb:GetItem'
+                  - 'dynamodb:PutItem'
+                  - 'dynamodb:UpdateItem'
+                  - 'dynamodb:DeleteItem'
+                  - 'dynamodb:Query'
+                  - 'dynamodb:Scan'
+                Resource: 
+                  - !GetAtt ConnectionsTable.Arn
+                  - !GetAtt SheetsDataTable.Arn
+                  - !GetAtt DataSourcesTable.Arn
+                  - !Sub '${ConnectionsTable.Arn}/index/*'
+                  - !Sub '${SheetsDataTable.Arn}/index/*'
+                  - !Sub '${DataSourcesTable.Arn}/index/*'
+              - Effect: Allow
+                Action:
+                  - 'sqs:ReceiveMessage'
+                  - 'sqs:DeleteMessage'
+                  - 'sqs:GetQueueAttributes'
+                Resource: !GetAtt ChangeNotificationQueue.Arn
+              - Effect: Allow
+                Action:
+                  - 'execute-api:ManageConnections'
+                Resource: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/${Environment}/POST/@connections/*'
+                
+  # IAM Role for Data Source Lambda Execution
+  DataSourceLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: !Sub 'datasource-handler-policy-${Environment}'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'dynamodb:GetItem'
+                  - 'dynamodb:PutItem'
+                  - 'dynamodb:UpdateItem'
+                  - 'dynamodb:DeleteItem'
+                  - 'dynamodb:Query'
+                  - 'dynamodb:Scan'
+                Resource: 
+                  - !GetAtt DataSourcesTable.Arn
+                  - !Sub '${DataSourcesTable.Arn}/index/*'
+              - Effect: Allow
+                Action:
+                  - 'secretsmanager:CreateSecret'
+                  - 'secretsmanager:UpdateSecret'
+                  - 'secretsmanager:DeleteSecret'
+                  - 'secretsmanager:GetSecretValue'
+                Resource: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:datasource/${Environment}/*'
+
+Outputs:
+  WebSocketApiEndpoint:
+    Description: "WebSocket API endpoint URL"
+    Value: !Sub "wss://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
+  
+  DataSourcesApiEndpoint:
+    Description: "REST API endpoint URL for data source management"
+    Value: !Sub "https://${DataSourcesApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
+  
+  SheetsDataTableName:
+    Description: "DynamoDB table for sheets data"
+    Value: !Ref SheetsDataTable
+  
+  DataSourcesTableName:
+    Description: "DynamoDB table for data sources"
+    Value: !Ref DataSourcesTable
+  
+  ConnectionsTableName:
+    Description: "DynamoDB table for WebSocket connections"
+    Value: !Ref ConnectionsTable
+  
+  ChangeNotificationQueueUrl:
+    Description: "SQS queue URL for change notifications"
+    Value: !Ref ChangeNotificationQueue

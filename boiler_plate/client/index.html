@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Sheets Real-Time Viewer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .header {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .connection-status {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: red;
+            margin-right: 5px;
+        }
+        .connection-status.connected {
+            background-color: green;
+        }
+        .sheet-selector {
+            margin-bottom: 20px;
+        }
+        .sheet-selector input {
+            padding: 8px;
+            width: 300px;
+        }
+        .sheet-selector button {
+            padding: 8px 16px;
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .sheet-selector button:hover {
+            background-color: #3367d6;
+        }
+        .data-container {
+            overflow-x: auto;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        .status-message {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .status-message.info {
+            background-color: #e3f2fd;
+            color: #0d47a1;
+        }
+        .status-message.error {
+            background-color: #ffebee;
+            color: #b71c1c;
+        }
+        .status-message.success {
+            background-color: #e8f5e9;
+            color: #1b5e20;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Google Sheets Real-Time Viewer</h1>
+            <p>
+                <span class="connection-status" id="connectionStatus"></span>
+                <span id="connectionStatusText">Disconnected</span>
+            </p>
+        </div>
+
+        <div class="sheet-selector">
+            <h2>Subscribe to Data Source</h2>
+            <div>
+                <label>
+                    <input type="radio" name="sourceType" value="sheet" checked> Google Sheet
+                </label>
+                <label>
+                    <input type="radio" name="sourceType" value="external"> External Source
+                </label>
+            </div>
+            <input type="text" id="sourceIdInput" placeholder="Enter Source ID">
+            <button id="subscribeButton">Subscribe</button>
+        </div>
+
+        <div id="statusMessages"></div>
+
+        <div class="data-container">
+            <h2>Sheet Data</h2>
+            <div id="sheetData">
+                <p>No data available. Please subscribe to a sheet.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const API_ENDPOINT = 'YOUR_WEBSOCKET_API_ENDPOINT'; // Replace with your WebSocket API endpoint
+
+        // State
+        let socket;
+        let currentSheetId = null;
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 5;
+        const reconnectDelay = 2000; // 2 seconds
+
+        // DOM Elements
+        const connectionStatus = document.getElementById('connectionStatus');
+        const connectionStatusText = document.getElementById('connectionStatusText');
+        const sheetIdInput = document.getElementById('sheetIdInput');
+        const subscribeButton = document.getElementById('subscribeButton');
+        const statusMessages = document.getElementById('statusMessages');
+        const sheetData = document.getElementById('sheetData');
+
+        // Initialize the application
+        function init() {
+            connectWebSocket();
+            subscribeButton.addEventListener('click', subscribeToSheet);
+        }
+
+        // Connect to WebSocket
+        function connectWebSocket() {
+            if (socket && socket.readyState !== WebSocket.CLOSED) {
+                return;
+            }
+
+            try {
+                socket = new WebSocket(API_ENDPOINT);
+
+                socket.onopen = () => {
+                    connectionStatus.classList.add('connected');
+                    connectionStatusText.textContent = 'Connected';
+                    showStatusMessage('Connected to server', 'success');
+                    reconnectAttempts = 0;
+
+                    // Resubscribe if we had an active subscription
+                    if (currentSheetId) {
+                        subscribeToSheet(currentSheetId);
+                    }
+                };
+
+                socket.onclose = (event) => {
+                    connectionStatus.classList.remove('connected');
+                    connectionStatusText.textContent = 'Disconnected';
+                    showStatusMessage('Connection closed. Attempting to reconnect...', 'info');
+                    
+                    // Attempt to reconnect
+                    if (reconnectAttempts < maxReconnectAttempts) {
+                        reconnectAttempts++;
+                        setTimeout(connectWebSocket, reconnectDelay * reconnectAttempts);
+                    } else {
+                        showStatusMessage('Failed to reconnect after multiple attempts. Please refresh the page.', 'error');
+                    }
+                };
+
+                socket.onerror = (error) => {
+                    showStatusMessage('WebSocket error: ' + error.message, 'error');
+                };
+
+                socket.onmessage = (event) => {
+                    handleMessage(event.data);
+                };
+            } catch (error) {
+                showStatusMessage('Failed to connect: ' + error.message, 'error');
+            }
+        }
+
+        // Subscribe to a data source (Google Sheet or External)
+        function subscribeToSheet() {
+            const sourceId = document.getElementById('sourceIdInput').value.trim();
+            const sourceType = document.querySelector('input[name="sourceType"]:checked').value;
+            
+            if (!sourceId) {
+                showStatusMessage('Please enter a valid Source ID', 'error');
+                return;
+            }
+
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                const message = {
+                    action: 'subscribe',
+                    sourceType: sourceType
+                };
+                
+                // Add the appropriate ID field based on source type
+                if (sourceType === 'external') {
+                    message.sourceId = sourceId;
+                } else {
+                    message.sheetId = sourceId;
+                }
+                
+                socket.send(JSON.stringify(message));
+                currentSheetId = sourceId;
+                showStatusMessage(`Subscribing to ${sourceType}: ${sourceId}`, 'info');
+            } else {
+                showStatusMessage('Not connected to server. Please wait for connection.', 'error');
+                connectWebSocket();
+            }
+        }
+
+        // Handle incoming WebSocket messages
+        function handleMessage(messageData) {
+            try {
+                const message = JSON.parse(messageData);
+                
+                switch (message.type) {
+                    case 'INITIAL_DATA':
+                        showStatusMessage(`Received initial data for sheet: ${message.id || message.sheetId}`, 'success');
+                        renderSheetData(message.data);
+                        break;
+                    
+                    case 'UPDATE':
+                        showStatusMessage(`Received update for sheet: ${message.id || message.sheetId}`, 'info');
+                        renderSheetData(message.data);
+                        break;
+                        
+                    case 'EXTERNAL_INITIAL_DATA':
+                        showStatusMessage(`Received initial data for external source: ${message.id || message.sourceId}`, 'success');
+                        renderExternalData(message.data);
+                        break;
+                    
+                    case 'EXTERNAL_UPDATE':
+                        showStatusMessage(`Received update for external source: ${message.id || message.sourceId}`, 'info');
+                        renderExternalData(message.data);
+                        break;
+                    
+                    default:
+                        console.log('Unknown message type:', message.type);
+                }
+            } catch (error) {
+                showStatusMessage('Error processing message: ' + error.message, 'error');
+            }
+        }
+        
+        // Render external source data
+        function renderExternalData(data) {
+            if (!data) {
+                sheetData.innerHTML = '<p>No data available for this source.</p>';
+                return;
+            }
+            
+            // For JSON data, create a formatted display
+            let html = '<div class="json-data">';
+            
+            // If data is an array, render as a table if possible
+            if (Array.isArray(data)) {
+                return renderSheetData(data); // Reuse the table renderer
+            }
+            
+            // Otherwise render as a formatted JSON object
+            html += '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+            html += '</div>';
+            
+            sheetData.innerHTML = html;
+        }
+
+        // Render sheet data as a table
+        function renderSheetData(data) {
+            if (!data || !Array.isArray(data) || data.length === 0) {
+                sheetData.innerHTML = '<p>No data available for this sheet.</p>';
+                return;
+            }
+
+            // Create table
+            let tableHtml = '<table>';
+            
+            // Headers (first row)
+            tableHtml += '<tr>';
+            data[0].forEach((cell, index) => {
+                tableHtml += `<th>${cell || ''}</th>`;
+            });
+            tableHtml += '</tr>';
+            
+            // Data rows
+            for (let i = 1; i < data.length; i++) {
+                tableHtml += '<tr>';
+                data[i].forEach((cell, index) => {
+                    tableHtml += `<td>${cell || ''}</td>`;
+                });
+                tableHtml += '</tr>';
+            }
+            
+            tableHtml += '</table>';
+            sheetData.innerHTML = tableHtml;
+        }
+
+        // Display status messages
+        function showStatusMessage(message, type = 'info') {
+            const messageElement = document.createElement('div');
+            messageElement.classList.add('status-message', type);
+            messageElement.textContent = message;
+            
+            statusMessages.appendChild(messageElement);
+            
+            // Auto-remove after 5 seconds
+            setTimeout(() => {
+                messageElement.remove();
+            }, 5000);
+        }
+
+        // Initialize the application when the page loads
+        window.addEventListener('load', init);
+    </script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+{
+  "name": "websocket-handler",
+  "version": "1.0.0",
+  "description": "Lambda function to handle WebSocket connections and messages",
+  "main": "index.js",
+  "scripts": {
+    "test": "jest"
+  },
+  "dependencies": {
+    "aws-sdk": "^2.1048.0",
+    "uuid": "^8.3.2"
+  },
+  "devDependencies": {
+    "jest": "^27.4.7"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "collectCoverage": true,
+    "coverageDirectory": "coverage",
+    "coverageReporters": ["text", "lcov"],
+    "collectCoverageFrom": ["*.js", "!node_modules/**"]
+  }
+}

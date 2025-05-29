@@ -1,0 +1,626 @@
+openapi: 3.0.0
+info:
+  title: Real-Time Google Sheets Integration API
+  description: |
+    API documentation for the Real-Time Google Sheets Integration System.
+    This system monitors Google Sheets and external data sources for changes
+    and provides real-time updates to clients via WebSockets.
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: support@example.com
+
+servers:
+  - url: https://{apiId}.execute-api.{region}.amazonaws.com/{stage}
+    description: API Gateway WebSocket endpoint
+    variables:
+      apiId:
+        default: abc123def456
+        description: API Gateway ID
+      region:
+        default: us-east-1
+        description: AWS Region
+      stage:
+        default: dev
+        description: Deployment stage
+
+tags:
+  - name: WebSocket
+    description: WebSocket connection operations
+  - name: Subscription
+    description: Data source subscription operations
+  - name: DataSources
+    description: Data source management operations
+  - name: Admin
+    description: Administrative operations
+
+paths:
+  /$connect:
+    get:
+      tags:
+        - WebSocket
+      summary: Connect to WebSocket
+      description: Establishes a WebSocket connection
+      operationId: connect
+      responses:
+        '200':
+          description: Connection established successfully
+        '401':
+          description: Unauthorized
+        '500':
+          description: Internal server error
+
+  /$disconnect:
+    get:
+      tags:
+        - WebSocket
+      summary: Disconnect from WebSocket
+      description: Terminates a WebSocket connection
+      operationId: disconnect
+      responses:
+        '200':
+          description: Connection terminated successfully
+        '500':
+          description: Internal server error
+
+  /subscribe:
+    post:
+      tags:
+        - Subscription
+      summary: Subscribe to a data source
+      description: Subscribe to a Google Sheet or external data source for real-time updates
+      operationId: subscribe
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/SheetSubscription'
+                - $ref: '#/components/schemas/ExternalSourceSubscription'
+      responses:
+        '200':
+          description: Subscription successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /datasources:
+    get:
+      tags:
+        - DataSources
+      summary: List all data sources
+      description: Returns a list of all available data sources
+      operationId: listDataSources
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSourcesResponse'
+        '401':
+          description: Unauthorized
+        '500':
+          description: Internal server error
+
+  /datasources/{sourceId}:
+    get:
+      tags:
+        - DataSources
+      summary: Get data source information
+      description: Returns detailed information about a specific data source
+      operationId: getDataSource
+      parameters:
+        - name: sourceId
+          in: path
+          description: ID of the data source
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSourceDetail'
+        '404':
+          description: Data source not found
+        '500':
+          description: Internal server error
+
+  /datasources/register:
+    post:
+      tags:
+        - DataSources
+      summary: Register a new external data source
+      description: Registers a new external data source for monitoring
+      operationId: registerDataSource
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterDataSourceRequest'
+      responses:
+        '201':
+          description: Data source registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterDataSourceResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+        '500':
+          description: Internal server error
+
+  /datasources/{sourceId}/update:
+    put:
+      tags:
+        - DataSources
+      summary: Update a data source
+      description: Updates an existing data source configuration
+      operationId: updateDataSource
+      parameters:
+        - name: sourceId
+          in: path
+          description: ID of the data source
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDataSourceRequest'
+      responses:
+        '200':
+          description: Data source updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSourceDetail'
+        '400':
+          description: Invalid request
+        '401':
+          description: Unauthorized
+        '404':
+          description: Data source not found
+        '500':
+          description: Internal server error
+
+  /datasources/{sourceId}/delete:
+    delete:
+      tags:
+        - DataSources
+      summary: Delete a data source
+      description: Removes a data source from monitoring
+      operationId: deleteDataSource
+      parameters:
+        - name: sourceId
+          in: path
+          description: ID of the data source
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Data source deleted successfully
+        '401':
+          description: Unauthorized
+        '404':
+          description: Data source not found
+        '500':
+          description: Internal server error
+
+components:
+  schemas:
+    SheetSubscription:
+      type: object
+      required:
+        - action
+        - sheetId
+      properties:
+        action:
+          type: string
+          enum: [subscribe]
+          description: Action to perform
+        sheetId:
+          type: string
+          description: ID of the Google Sheet to subscribe to
+      example:
+        action: subscribe
+        sheetId: sheet-123456
+
+    ExternalSourceSubscription:
+      type: object
+      required:
+        - action
+        - sourceId
+        - sourceType
+      properties:
+        action:
+          type: string
+          enum: [subscribe]
+          description: Action to perform
+        sourceId:
+          type: string
+          description: ID of the external source to subscribe to
+        sourceType:
+          type: string
+          enum: [external]
+          description: Type of the data source
+      example:
+        action: subscribe
+        sourceId: stocks-api
+        sourceType: external
+
+    SubscriptionResponse:
+      type: object
+      properties:
+        statusCode:
+          type: integer
+          description: HTTP status code
+        body:
+          type: string
+          description: Response message
+      example:
+        statusCode: 200
+        body: Subscribed
+
+    ErrorResponse:
+      type: object
+      properties:
+        statusCode:
+          type: integer
+          description: HTTP status code
+        body:
+          type: string
+          description: Error message
+      example:
+        statusCode: 400
+        body: Invalid request body
+
+    DataSourcesResponse:
+      type: object
+      properties:
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/DataSourceSummary'
+      example:
+        sources:
+          - id: stocks-api
+            name: Stock Market Data
+            type: external
+            dataFormat: json
+            lastUpdated: "2023-01-01T12:00:00Z"
+          - id: sheet-123456
+            name: Sales Data
+            type: googleSheet
+            lastUpdated: "2023-01-01T10:30:00Z"
+
+    DataSourceSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Unique identifier for the data source
+        name:
+          type: string
+          description: Display name of the data source
+        type:
+          type: string
+          enum: [googleSheet, external]
+          description: Type of data source
+        dataFormat:
+          type: string
+          enum: [json, xml, sheet]
+          description: Format of the data
+        lastUpdated:
+          type: string
+          format: date-time
+          description: When the data was last updated
+
+    DataSourceDetail:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Unique identifier for the data source
+        name:
+          type: string
+          description: Display name of the data source
+        description:
+          type: string
+          description: Detailed description of the data source
+        type:
+          type: string
+          enum: [googleSheet, external]
+          description: Type of data source
+        dataFormat:
+          type: string
+          enum: [json, xml, sheet]
+          description: Format of the data
+        url:
+          type: string
+          description: URL of the external data source (only for external sources)
+        pollingInterval:
+          type: integer
+          description: Polling interval in seconds (only for external sources)
+        headers:
+          type: object
+          description: HTTP headers for API requests (only for external sources)
+        createdAt:
+          type: string
+          format: date-time
+          description: When the data source was created
+        lastUpdated:
+          type: string
+          format: date-time
+          description: When the data was last updated
+        owner:
+          type: string
+          description: User ID of the owner
+        subscriberCount:
+          type: integer
+          description: Number of subscribers to this data source
+      example:
+        id: stocks-api
+        name: Stock Market Data
+        description: Real-time stock market data from Example Financial API
+        type: external
+        dataFormat: json
+        url: https://api.example.com/stocks
+        pollingInterval: 300
+        headers:
+          Authorization: Bearer {token}
+          Content-Type: application/json
+        createdAt: "2023-01-01T00:00:00Z"
+        lastUpdated: "2023-01-01T12:00:00Z"
+        owner: user-123
+        subscriberCount: 42
+
+    RegisterDataSourceRequest:
+      type: object
+      required:
+        - name
+        - type
+        - dataFormat
+      properties:
+        name:
+          type: string
+          description: Display name of the data source
+        description:
+          type: string
+          description: Detailed description of the data source
+        type:
+          type: string
+          enum: [googleSheet, external]
+          description: Type of data source
+        dataFormat:
+          type: string
+          enum: [json, xml, sheet]
+          description: Format of the data
+        url:
+          type: string
+          description: URL of the external data source (required for external sources)
+        pollingInterval:
+          type: integer
+          description: Polling interval in seconds (for external sources)
+          default: 300
+        headers:
+          type: object
+          description: HTTP headers for API requests (for external sources)
+        apiKey:
+          type: string
+          description: API key for the external source (will be stored securely)
+      example:
+        name: Stock Market Data
+        description: Real-time stock market data from Example Financial API
+        type: external
+        dataFormat: json
+        url: https://api.example.com/stocks
+        pollingInterval: 300
+        headers:
+          Content-Type: application/json
+        apiKey: your-api-key-here
+
+    RegisterDataSourceResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Generated ID for the new data source
+        name:
+          type: string
+          description: Display name of the data source
+        type:
+          type: string
+          description: Type of data source
+        message:
+          type: string
+          description: Success message
+      example:
+        id: stocks-api-123
+        name: Stock Market Data
+        type: external
+        message: Data source registered successfully
+
+    UpdateDataSourceRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Display name of the data source
+        description:
+          type: string
+          description: Detailed description of the data source
+        url:
+          type: string
+          description: URL of the external data source
+        pollingInterval:
+          type: integer
+          description: Polling interval in seconds
+        headers:
+          type: object
+          description: HTTP headers for API requests
+        apiKey:
+          type: string
+          description: API key for the external source (will be stored securely)
+      example:
+        name: Updated Stock Market Data
+        description: Updated description
+        pollingInterval: 600
+        apiKey: new-api-key-here
+
+    InitialDataMessage:
+      type: object
+      required:
+        - type
+        - sheetId
+        - data
+      properties:
+        type:
+          type: string
+          enum: [INITIAL_DATA]
+          description: Message type
+        sheetId:
+          type: string
+          description: ID of the Google Sheet
+        data:
+          type: array
+          description: Sheet data as a 2D array
+          items:
+            type: array
+            items:
+              type: string
+      example:
+        type: INITIAL_DATA
+        sheetId: sheet-123456
+        data: [["Name", "Age", "City"], ["John Doe", "30", "New York"]]
+
+    UpdateMessage:
+      type: object
+      required:
+        - type
+        - sheetId
+        - data
+        - timestamp
+      properties:
+        type:
+          type: string
+          enum: [UPDATE]
+          description: Message type
+        sheetId:
+          type: string
+          description: ID of the Google Sheet
+        data:
+          type: array
+          description: Updated sheet data as a 2D array
+          items:
+            type: array
+            items:
+              type: string
+        timestamp:
+          type: string
+          format: date-time
+          description: Timestamp of the update
+      example:
+        type: UPDATE
+        sheetId: sheet-123456
+        data: [["Name", "Age", "City"], ["John Doe", "31", "Boston"]]
+        timestamp: "2023-01-01T12:00:00Z"
+
+    ExternalInitialDataMessage:
+      type: object
+      required:
+        - type
+        - id
+        - sourceType
+        - data
+      properties:
+        type:
+          type: string
+          enum: [EXTERNAL_INITIAL_DATA]
+          description: Message type
+        id:
+          type: string
+          description: ID of the external source
+        sourceType:
+          type: string
+          enum: [external]
+          description: Type of the data source
+        data:
+          type: object
+          description: External source data
+      example:
+        type: EXTERNAL_INITIAL_DATA
+        id: stocks-api
+        sourceType: external
+        data:
+          stocks:
+            - symbol: AAPL
+              price: 150.25
+            - symbol: MSFT
+              price: 290.10
+
+    ExternalUpdateMessage:
+      type: object
+      required:
+        - type
+        - sourceId
+        - sourceType
+        - data
+        - timestamp
+      properties:
+        type:
+          type: string
+          enum: [EXTERNAL_UPDATE]
+          description: Message type
+        sourceId:
+          type: string
+          description: ID of the external source
+        sourceType:
+          type: string
+          enum: [external]
+          description: Type of the data source
+        data:
+          type: object
+          description: Updated external source data
+        timestamp:
+          type: string
+          format: date-time
+          description: Timestamp of the update
+      example:
+        type: EXTERNAL_UPDATE
+        sourceId: stocks-api
+        sourceType: external
+        data:
+          stocks:
+            - symbol: AAPL
+              price: 152.75
+            - symbol: MSFT
+              price: 288.30
+        timestamp: "2023-01-01T13:00:00Z"
