@@ -23,6 +23,18 @@ servers:
       stage:
         default: dev
         description: Deployment stage
+  - url: https://{restApiId}.execute-api.{region}.amazonaws.com/{stage}
+    description: API Gateway REST API endpoint
+    variables:
+      restApiId:
+        default: def456abc123
+        description: REST API Gateway ID
+      region:
+        default: us-east-1
+        description: AWS Region
+      stage:
+        default: dev
+        description: Deployment stage
 
 tags:
   - name: WebSocket
@@ -105,6 +117,7 @@ paths:
       summary: List all data sources
       description: Returns a list of all available data sources
       operationId: listDataSources
+      x-lambda-function: ListDataSourcesFunction
       responses:
         '200':
           description: Successful operation
@@ -124,6 +137,7 @@ paths:
       summary: Get data source information
       description: Returns detailed information about a specific data source
       operationId: getDataSource
+      x-lambda-function: GetDataSourceFunction
       parameters:
         - name: sourceId
           in: path
@@ -150,6 +164,7 @@ paths:
       summary: Register a new external data source
       description: Registers a new external data source for monitoring
       operationId: registerDataSource
+      x-lambda-function: RegisterDataSourceFunction
       requestBody:
         required: true
         content:
@@ -181,6 +196,7 @@ paths:
       summary: Update a data source
       description: Updates an existing data source configuration
       operationId: updateDataSource
+      x-lambda-function: UpdateDataSourceFunction
       parameters:
         - name: sourceId
           in: path
@@ -217,6 +233,7 @@ paths:
       summary: Delete a data source
       description: Removes a data source from monitoring
       operationId: deleteDataSource
+      x-lambda-function: DeleteDataSourceFunction
       parameters:
         - name: sourceId
           in: path

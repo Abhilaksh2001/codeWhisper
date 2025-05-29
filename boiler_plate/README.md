@@ -22,13 +22,30 @@ boiler_plate/
 ├── ecs/
 │   ├── Dockerfile                # Docker configuration for the monitoring service
 │   ├── index.js                  # Main code for the Google Sheets monitoring service
-│   └── package.json              # Node.js dependencies for the monitoring service
+│   ├── package.json              # Node.js dependencies for the monitoring service
+│   └── external-source-monitor/  # External source monitoring service
+│       ├── index.js              # Main code for external source monitoring
+│       ├── Dockerfile            # Docker configuration for external source monitor
+│       └── package.json          # Node.js dependencies
 ├── lambda/
-│   └── websocket-handler/        # Lambda function for WebSocket handling
-│       ├── index.js              # Main Lambda handler code
-│       └── package.json          # Node.js dependencies for the Lambda function
+│   ├── websocket-handler/        # Lambda function for WebSocket handling
+│   │   ├── index.js              # Main Lambda handler code
+│   │   ├── package.json          # Node.js dependencies
+│   │   └── tests/                # Test files for WebSocket handler
+│   └── datasource-handler/       # Lambda functions for data source management
+│       ├── list.js               # Lists all data sources
+│       ├── get.js                # Gets a specific data source
+│       ├── register.js           # Registers a new data source
+│       ├── update.js             # Updates an existing data source
+│       ├── delete.js             # Deletes a data source
+│       └── package.json          # Node.js dependencies
 ├── client/
 │   └── index.html                # Simple HTML/JS client for testing
+├── api-docs/                     # API documentation
+│   ├── openapi.yaml              # OpenAPI specification for WebSocket API
+│   ├── api-stubs-openapi.yaml    # OpenAPI specification for API stubs
+│   ├── index.html                # HTML viewer for API documentation
+│   └── architecture.md           # Architecture documentation
 └── README.md                     # This file
 ```
 
