@@ -1,0 +1,102 @@
+
+Input to  LLM	Output to LLM	CONS	PROS
+Architecture  & design 	You will be given a Project Requirement and you have to propose an architecture pattern for the given requirements. Suggest structure and interactions of different AWS components. Suggest appropriate technology. Consider scalability and performance. Generate UML and block diagrams . Explain architecture diagram generated Create a cloud solution for the following requirement :
+1) There is a backend service and some client application.
+2) The backend service will listen to google sheets for any changes.
+3) The backend service will process the data from google sheets and store it in a database.
+4) The backend service then should send the data to the client application.
+5) The changes should reflect in real time on the client application.	codeWhisper/comprehensive_analysis.md at main · Abhilaksh2001/codeWhisper	
+when scaling, it does not take into the account of cost as a parameter.
+ also cost calculation is wrong and also cannot think of edge cases like authentication, security groups , IAM roles.
+In the written code it has many security risks identified by itself.
+Does not take edge cases. ex: for polling it has used lambda , need to explicit tell it.
+Able to identify key components needed for the requirement, and how they will interact with each other on aws.
+
+Requirement 	Based on the above requirement given, I would suggest using a serverless architecture with AWS Lambda, Amazon API Gateway, Amazon DynamoDB, Amazon SQS, Amazon SNS, and Amazon CloudWatch. or feel free to suggest any other  :
+1. Break down the entire backend development scope into sub-features, manageable tasks, and workflows to guide implementation and team allocation.
+2. Identify potential edge cases, constraints, and failure points that need to be addressed during the design phase.
+3. Define any important non-functional requirements like security, performance, maintainability, and scalability.
+4. Suggest any revisions or optimizations to your earlier architecture choices	codeWhisper/requirement_analysis.md at main · Abhilaksh2001/codeWhisper	
+Identify the edge cases along with the phases of development 
+Code generation and boiler plate	
+Now generate code Based on the finalized design and requirements discussed above generate code for the following:
+
+1. The backend service that listens to Google Sheets for any changes and processes the data from Google Sheets and stores it in a database. Also, the backend service should send the data to the client application. The changes should reflect in real-time on the client application.
+2. AWS architect code for the same.
+
+codeWhisper/boiler_plate at main · Abhilaksh2001/codeWhisper	
+ Does not follow best principle when writing the code.
+
+ex: All endpoint handling was taken care in one lambda function.
+
+it does not follow separation of concerns.
+
+Generate code good for staring point but have to analyze the code for any errors
+3rd Party tool	Implement Google Sheets for any changes and processes the data from Google Sheets	codeWhisper/boiler_plate at main · Abhilaksh2001/codeWhisper	
+Able to implement the google sheets library, aws , jest.
+New Code generation 	Add a new functionality to the existing system where the backend service can also listen to another source like that service can give json or xml and listen for any changes and process the data from that source as well. The processed data should be stored in the same database and sent to the client application in real-time.	
+codeWhisper/boiler_plate/ecs/external-source-monitor at main · Abhilaksh2001/codeWhisper
+
+
+docs: codeWhisper/boiler_plate/external_source_integration.md at main · Abhilaksh2001/codeWhisper
+
+It does not delete the old files which are not required.
+Able to add new feature like for a new external source and changed all the necessary files
+Api stubs	Generate simplified simulated versions of API for API stubs - Prototyping APIs for the backend application to consume. These can be used for testing and development purposes before the actual APIs are implemented.	codeWhisper/boiler_plate/api-stubs at main · Abhilaksh2001/codeWhisper	
+Does not create the stubs for all the APIs , had to tell for the APIs. ex : websocket
+Able to write for both the cases :
+
+Datasource
+Client that connects to DataSource
+Generating TCS/Mock data	You are an experienced backend engineer and test architect. Write detailed test cases for the following backend application. Please ensure all the test cases cover both typical and edge scenarios with the synthetically generated data	codeWhisper/boiler_plate/lambda/websocket-handler/tests/websocket-handler.test.js at main · Abhilaksh2001/codeWhisper	
+Had to tell again and again to write test for these functions.
+
+It does not write test automatically for the whole project
+
+able to write the TCs in JEST
+Security Vulnerability	Identify the key security vulnerability present at both code and infra level , /review for identifying bugs and vulnerabilities	codeWhisper/boiler_plate/security_risk.md at main · Abhilaksh2001/codeWhisper	
+Identified the major security vulnerability both at code level and Infra level like authentication missing or IAM roles and security groups problems
+
+/review will scan the whole project and shows the potential security risk divided in 5 categories : Critical , High , Medium , low , info
+Generating Documentation	/doc for all the files present inside the folder	codeWhisper/boiler_plate at main · Abhilaksh2001/codeWhisper	1 Not gets updated with the new changes.	generated Readme file with the architecture using actual images.
+Api documentation	Api documentation: generate a the api documentation for the project using swagger or any other tool.	codeWhisper/boiler_plate/api-docs at main · Abhilaksh2001/codeWhisper	
+Api documentation for both the Mock Apis and actual Apis
+SQL Lang conversion	convert the schema present at https://github.com/Abhilaksh2001/data/blob/main/postgresql_schema	codeWhisper/mssql_schema.sql at main · Abhilaksh2001/codeWhisper	
+The schema was converted and was able to run in one go.
+Schema generation
+
+& ERD
+
+1) I have an application which is a type of android device management solution , i want to create db schemas on the following use cases :
+1) There will be user with different roles.
+2) There will be android devices with their information.
+3) There will be different devices commands.
+4) There will be groups for both the devices and users. (user group will be different from device group)
+5) There will be tags also for the devices
+6) Devices having apps so that I can remotely uninstall and install the app , please consider this also
+
+Based on the requirement generate me a db schema and ERD	
+codeWhisper/sql/device_management_schema.sql at main · Abhilaksh2001/codeWhisper
+
+
+
+
+
+ERD: codeWhisper/sql/device_management_erd.md at main · Abhilaksh2001/codeWhisper
+
+Schema was having extra tables like audit_logs , app_commands unlike other tools.
+Unecessary triggers and Enums were created
+Automatically add columns which are required in a table like device , app.
+Query was run in first attempt.
+Query Generation	
+LLM Input
+codeWhisper/sql/device_management_queries.sql at main · Abhilaksh2001/codeWhisper	
+Query were small and to the point
+Query Optimization	
+LLM Input
+codeWhisper/sql/optimized_queries.sql at main · Abhilaksh2001/codeWhisper	
+Query were significant optimized with not more than 2-3 feedback.
+IAC Code generation	Generate AWS architect code for the same.	codeWhisper/boiler_plate/infrastructure at main · Abhilaksh2001/codeWhisper	
+does not take scalability into account when creating. ex: Had to tell for ecs fargate (min desired) and redis for sharding.
+with regular feedback of optimization and some inputs it generated the yml file that was scalable
+
